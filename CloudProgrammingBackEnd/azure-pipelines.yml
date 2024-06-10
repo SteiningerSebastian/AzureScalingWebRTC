@@ -1,0 +1,134 @@
+# .NET Core Function App to Windows on Azure
+# Build a .NET Core function app and deploy it to Azure as a Windows function App.
+# Add steps that analyze code, save build artifacts, deploy, and more:
+# https://docs.microsoft.com/en-us/azure/devops/pipelines/languages/dotnet-core
+
+#trigger:
+#- main
+
+variables:
+  # Agent VM image name
+  vmImageName: 'windows-2019'
+
+stages:
+- stage: Build
+  displayName: Build stage
+
+  jobs:
+  - job: Build
+    displayName: Build
+    pool:
+      vmImage: $(vmImageName)
+
+    steps:
+    - task: DotNetCoreCLI@2
+      displayName: Build
+      inputs:
+        command: 'build'
+        projects: |
+          $(workingDirectory)/*.csproj
+        arguments: --output $(System.DefaultWorkingDirectory)/publish_output --configuration Release
+
+    - task: ArchiveFiles@2
+      displayName: 'Archive files'
+      inputs:
+        rootFolderOrFile: '$(System.DefaultWorkingDirectory)/publish_output'
+        includeRootFolder: false
+        archiveType: zip
+        archiveFile: $(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip
+        replaceExistingArchive: true
+
+    - publish: $(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip
+      artifact: drop
+
+- stage: Deploy
+  displayName: Deploy stage
+  dependsOn: Build
+  condition: succeeded()
+
+  jobs:
+  - deployment: Deploy
+    displayName: Deploy
+    environment: 'development'
+    pool:
+      vmImage: $(vmImageName)
+
+    strategy:
+      runOnce:
+        deploy:
+
+          steps:
+          - task: AzureFunctionApp@1
+            displayName: 'Azure functions app deploy'
+            inputs:
+              azureSubscription: 'Azure Devops'
+              appType: functionApp
+              appName: $(functionAppName)
+              package: '$(Pipeline.Workspace)/drop/$(Build.BuildId).zip'
+              appSettings: '-WEBSITE_CONTENTAZUREFILECONNECTIONSTRING "@Microsoft.KeyVault(SecretUri=$(keyVaultUri)secrets/contentazurefileconnectionstring/)"'
+
+
+# Thanks to Microsoft Copilot for inspiring this stage of the pipeline. (Microsoft, 2024) https://www.bing.com/chat
+- stage: SetupEnvironment
+  displayName: Setup Environment
+  dependsOn: Deploy
+  condition: succeeded()
+
+  jobs:
+  - job: SetupDB
+    displayName: Setup Database
+    pool:
+      vmImage: $(vmImageName)
+
+    steps:
+    - task: AzureCLI@2
+      inputs:
+        azureSubscription: 'Azure Devops'
+        scriptType: 'ps'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          $token= & az account get-access-token --resource=https://database.windows.net --query accessToken
+          Write-Host("##vso[task.setvariable variable=accessToken]$token")
+    - task: PowerShell@2
+      inputs:
+        targetType: 'inline'
+        # Creates the user with the necessary roles for EntryId auth. and the needed table if they do not exist.
+        script: |
+          $sqlServerFQN = '$(SqlServerFQN)'; 
+          $sqlDatabaseName = '$(SqlDatabaseName)'; 
+          $conn = new-object System.Data.SqlClient.SqlConnection; $conn.ConnectionString = "Server=tcp:$($sqlServerFQN),1433;Initial Catalog=$($sqlDatabaseName);Persist Security Info=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"; 
+          $conn.AccessToken = $(accessToken); 
+          $conn.Open();
+
+          $sysident = '$(SystemIdentity)';
+          
+          $SqlCmdCreateUser = New-Object System.Data.SqlClient.SqlCommand;
+          $SqlCmdCreateUser.CommandText = "
+            IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'$($sysident)')
+            BEGIN
+              CREATE USER [$($sysident)] FROM EXTERNAL PROVIDER;
+            END";
+          $SqlCmdCreateUser.Connection = $conn;
+          $SqlCmdCreateUser.ExecuteNonQuery();
+
+          $SqlCmdAddReaderRole = New-Object System.Data.SqlClient.SqlCommand;
+          $SqlCmdAddReaderRole.CommandText = "ALTER ROLE db_datareader ADD MEMBER [$($sysident)];";
+          $SqlCmdAddReaderRole.Connection = $conn;
+          $SqlCmdAddReaderRole.ExecuteNonQuery();
+
+          $SqlCmdAddWriterRole = New-Object System.Data.SqlClient.SqlCommand;
+          $SqlCmdAddWriterRole.CommandText = "ALTER ROLE db_datawriter ADD MEMBER [$($sysident)];";
+          $SqlCmdAddWriterRole.Connection = $conn;
+          $SqlCmdAddWriterRole.ExecuteNonQuery();
+
+          $SqlCmdCreateTable = New-Object System.Data.SqlClient.SqlCommand;
+          $SqlCmdCreateTable.CommandText = "
+            IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = N'MessageStatistics')
+            BEGIN
+              CREATE TABLE MessageStatistics (MessageDate DATE,nMessages INT,PRIMARY KEY (MessageDate));
+            END";
+          $SqlCmdCreateTable.Connection = $conn;
+          $SqlCmdCreateTable.ExecuteNonQuery();
+
+          $conn.Close();
+    

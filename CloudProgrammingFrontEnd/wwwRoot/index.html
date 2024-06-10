@@ -1,0 +1,36 @@
+<html lang="en">
+
+<head>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/3.1.7/signalr.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/axios@0.18.0/dist/axios.min.js"></script>
+  <script src="./main.js"></script>
+</head>
+
+<body>
+  <div class="main">
+    <div class="content" id="login">
+      <div>
+        <h2>Login</h2>
+      </div>
+      <input type="text" id="inpUser" onkeydown="callOnEnter(this, login)" /><button onclick="login()">Login</button>
+    </div>
+    <div class="content" id="chat" style="display: none;">
+      <div>
+        <h2>Chat</h2>
+      </div>
+      <div id="chatHistory">
+
+      </div>
+      <input type="text" id="inpText" onkeydown="callOnEnter(this, sendMessage)" /><button
+        onclick="sendMessage()">Send</button>
+      <div>Today <span id="todayMessages">0</span> messages were sent!</div>
+      <div>Since the creating of this page <span id="sumMessages">0</span> messages were sent!</div>
+      <div>Get sued for using these TURN creds: </div>
+      <button onclick="aquireTurnCredentials()">Aquire TURN credentials</button>
+      <div id="turnCredidentials"></div>
+    </div>
+  </div>
+</body>
+
+</html>

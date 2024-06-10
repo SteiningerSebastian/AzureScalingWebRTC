@@ -1,0 +1,31 @@
+.sentMsg {
+  text-align: center;
+  background-color: darkolivegreen;
+  margin: 1em;
+  padding: 0.3em;
+  border-radius: 0.3em;
+  width: fit-content;
+  justify-content: right;
+  margin-left: auto;
+  margin-right: 0;
+  color: white;
+  min-width: 5em;
+}
+
+.receivedMsg {
+  text-align: center;
+  background-color: olive;
+  margin: 1em;
+  padding: 0.3em;
+  border-radius: 0.3em;
+  width: fit-content;
+  justify-content: left;
+  margin-left: 0;
+  margin-right: auto;
+  color: white;
+  min-width: 5em;
+}
+
+.content {
+  max-width: 50em;
+}
